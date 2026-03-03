@@ -672,6 +672,8 @@ def spawn_training(resume=False, steps=10000):
     return proc
 
 def spawn_powermetrics():
+    if not sys.stdin.isatty():
+        return None
     try:
         proc = subprocess.Popen(
             ['sudo', 'powermetrics', '--samplers', 'cpu_power,gpu_power,ane_power', '-i', '1000'],

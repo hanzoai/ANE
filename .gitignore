@@ -22,6 +22,16 @@ training/test_conv_attn3
 training/test_full_fused
 training/test_fused_bwd
 training/test_fused_qkv
+training/train_large_ane
+training/test_classifier
+training/test_rmsnorm_bwd
+training/test_dynamic_matmul
+training/test_weight_patch
+training/training_dynamic/train
+
+# Compiled libraries
+bridge/libane_bridge.dylib
+*.dylib
 
 # Python venv
 .venv/

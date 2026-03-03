@@ -1,0 +1,114 @@
+[
+  {
+    "backend": "MLX",
+    "operation": "matmul",
+    "shape": "768x256 @ 256x768",
+    "ms_per_op": 6.083245840000018,
+    "tflops": 0.049642887356990184,
+    "notes": "Stories110M dim"
+  },
+  {
+    "backend": "MLX",
+    "operation": "matmul",
+    "shape": "768x256 @ 256x2048",
+    "ms_per_op": 3.1631091599956562,
+    "tflops": 0.25459329010355936,
+    "notes": "Stories110M FFN"
+  },
+  {
+    "backend": "MLX",
+    "operation": "matmul",
+    "shape": "4096x512 @ 512x4096",
+    "ms_per_op": 7.272356660005244,
+    "tflops": 2.362352396504658,
+    "notes": "Zen-4B dim"
+  },
+  {
+    "backend": "MLX",
+    "operation": "matmul",
+    "shape": "4096x512 @ 512x11008",
+    "ms_per_op": 6.866338339996219,
+    "tflops": 6.724238763921067,
+    "notes": "Zen-4B FFN"
+  },
+  {
+    "backend": "MLX",
+    "operation": "matmul",
+    "shape": "4096x2048 @ 2048x4096",
+    "ms_per_op": 10.98757249999835,
+    "tflops": 6.254291085315735,
+    "notes": "Zen-4B long ctx"
+  },
+  {
+    "backend": "MLX",
+    "operation": "transformer_fwd",
+    "shape": "dim=768 h=12 seq=256",
+    "ms_per_op": 7.699347950006086,
+    "tflops": 0.0,
+    "notes": "Stories110M"
+  },
+  {
+    "backend": "MLX",
+    "operation": "transformer_fwd",
+    "shape": "dim=4096 h=32 seq=512",
+    "ms_per_op": 63.143602100012686,
+    "tflops": 0.0,
+    "notes": "Zen-4B"
+  },
+  {
+    "backend": "MLX",
+    "operation": "train_step",
+    "shape": "1-layer dim=768 seq=256",
+    "ms_per_op": 62.13079170001947,
+    "tflops": 0.0,
+    "notes": "Stories110M"
+  },
+  {
+    "backend": "MPS",
+    "operation": "matmul",
+    "shape": "768x256 @ 256x768",
+    "ms_per_op": 7.707359159994667,
+    "tflops": 0.03918201834520567,
+    "notes": "Stories110M dim"
+  },
+  {
+    "backend": "MPS",
+    "operation": "matmul",
+    "shape": "768x256 @ 256x2048",
+    "ms_per_op": 7.709723320003832,
+    "tflops": 0.10445334217254372,
+    "notes": "Stories110M FFN"
+  },
+  {
+    "backend": "MPS",
+    "operation": "matmul",
+    "shape": "4096x512 @ 512x4096",
+    "ms_per_op": 11.832635000000664,
+    "tflops": 1.4519056139227684,
+    "notes": "Zen-4B dim"
+  },
+  {
+    "backend": "MPS",
+    "operation": "matmul",
+    "shape": "4096x512 @ 512x11008",
+    "ms_per_op": 14.450160839996897,
+    "tflops": 3.195182319646064,
+    "notes": "Zen-4B FFN"
+  },
+  {
+    "backend": "MPS",
+    "operation": "matmul",
+    "shape": "4096x2048 @ 2048x4096",
+    "ms_per_op": 16.676723340005992,
+    "tflops": 4.120682182881095,
+    "notes": "Zen-4B long ctx"
+  },
+  {
+    "backend": "MPS",
+    "operation": "train_step",
+    "shape": "1-layer dim=768 seq=256",
+    "ms_per_op": 83.85612920001222,
+    "tflops": 0.0,
+    "notes": "Stories110M"
+  }
+]

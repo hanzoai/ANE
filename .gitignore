@@ -1,0 +1,30 @@
+# Compiled binaries
+ane_universal_test
+ane_probe_m1
+ane_coreml_bridge
+ane_m1_fix
+inmem_basic
+inmem_bench
+inmem_peak
+sram_bench
+sram_probe
+training/train
+training/train_large
+training/tiny_train
+training/tiny_train_old
+training/test_weight_reload
+training/test_perf_stats
+training/test_qos_sweep
+training/test_ane_advanced
+training/test_ane_causal_attn
+training/test_ane_sdpa5
+training/test_conv_attn3
+training/test_full_fused
+training/test_fused_bwd
+training/test_fused_qkv
+
+# Python venv
+.venv/
+
+# macOS
+.DS_Store

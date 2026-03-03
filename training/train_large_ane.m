@@ -9,7 +9,7 @@
 //               NLL loss + gradient (needs target indexing)
 //
 // Build: make train_large_ane
-// Run:   ./train_large_ane [--resume] [--steps N] [--lr F]
+// Run:   ./train_large_ane [--resume] [--steps N] [--lr F] [--data PATH]
 #include "stories_io.h"
 #include "stories_mil.h"
 #include "stories_cpu_ops.h"
@@ -18,7 +18,7 @@
 
 #define CKPT_PATH_DEFAULT "ane_stories110M_ckpt.bin"
 #define MODEL_PATH_DEFAULT "stories110M.bin"
-#define DATA_PATH "tinystories_data00.bin"
+#define DATA_PATH_DEFAULT "tinystories_data00.bin"
 
 // ===== Weight loading from llama2.c format =====
 static bool load_pretrained(LayerWeights *lw, float *rms_final, float *embed, const char *path) {
@@ -204,6 +204,7 @@ int main(int argc, char *argv[]) {
         int adam_t = 0, start_step = 0;
         const char *ckpt_path = CKPT_PATH_DEFAULT;
         const char *model_path = MODEL_PATH_DEFAULT;
+        const char *data_path = DATA_PATH_DEFAULT;
         bool do_resume = false;
         bool ane_extras = true;  // classifier, softmax, rmsnorm_bwd on ANE
         int pos = 0;
@@ -214,6 +215,7 @@ int main(int argc, char *argv[]) {
             else if (strcmp(argv[i], "--lr") == 0 && i+1<argc) lr = atof(argv[++i]);
             else if (strcmp(argv[i], "--ckpt") == 0 && i+1<argc) ckpt_path = argv[++i];
             else if (strcmp(argv[i], "--model") == 0 && i+1<argc) model_path = argv[++i];
+            else if (strcmp(argv[i], "--data") == 0 && i+1<argc) data_path = argv[++i];
             else if (argv[i][0] != '-') {
                 if (pos == 0) model_path = argv[i];
                 else if (pos == 1) { /* seq - compile-time constant */ }
@@ -271,8 +273,12 @@ int main(int argc, char *argv[]) {
         }
 
         // mmap token data
-        int data_fd = open(DATA_PATH, O_RDONLY);
-        if (data_fd < 0) { printf("Cannot open %s\n", DATA_PATH); return 1; }
+        int data_fd = open(data_path, O_RDONLY);
+        if (data_fd < 0) {
+            printf("Cannot open token data: %s\n", data_path);
+            printf("Hint: run `bash download_data.sh` in training/ or pass --data /path/to/tinystories_data00.bin\n");
+            return 1;
+        }
         struct stat st; fstat(data_fd, &st);
         size_t data_len = st.st_size;
         uint16_t *token_data = (uint16_t*)mmap(NULL, data_len, PROT_READ, MAP_PRIVATE, data_fd, 0);
@@ -354,9 +360,9 @@ int main(int argc, char *argv[]) {
                 printf("[exec() restart step %d, %d compiles, loss=%.4f]\n", step, g_compile_count, last_loss);
                 fflush(stdout);
                 if (ane_extras)
-                    execl(argv[0], argv[0], "--resume", "--ckpt", ckpt_path, NULL);
+                    execl(argv[0], argv[0], "--resume", "--ckpt", ckpt_path, "--data", data_path, NULL);
                 else
-                    execl(argv[0], argv[0], "--resume", "--ckpt", ckpt_path, "--no-ane-extras", NULL);
+                    execl(argv[0], argv[0], "--resume", "--ckpt", ckpt_path, "--data", data_path, "--no-ane-extras", NULL);
                 perror("execl"); return 1;
             }
 

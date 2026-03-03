@@ -47,18 +47,70 @@ Training a 109M-parameter Llama2-architecture transformer (Stories110M) directly
 
 ## Usage
 
-```bash
-# Extract tokenized data
-python3 tokenize.py
+### 1. Download Training Data
 
-# Build and train
+```bash
+bash download_data.sh
+```
+
+Downloads pretokenized TinyStories (Llama 2 BPE, 32K vocab) from [enio/TinyStories](https://huggingface.co/datasets/enio/TinyStories) on HuggingFace. Produces `tinystories_data00.bin` (~41 MB, ~20M tokens).
+
+### 2. Build & Train
+
+```bash
+# Baseline: classifier + softmax on CPU
 make train_large
-./train_large                    # fresh start
+./train_large --steps 100        # quick test
+./train_large                    # full 10k steps
 ./train_large --resume           # resume from checkpoint
 
-# Monitor with dashboard
+# ANE-offloaded: classifier + softmax on ANE (faster)
+make train_large_ane
+./train_large_ane --steps 100
+```
+
+**CLI flags:** `--steps N` (default 10000), `--lr F` (default 3e-4), `--resume`.
+
+### 3. Monitor with Dashboard
+
+```bash
 pip install blessed psutil numpy
-python3 dashboard.py --resume    # needs sudo for powermetrics
+sudo python3 dashboard.py          # live mode (needs powermetrics)
+sudo python3 dashboard.py --resume  # attach to resumed training
+```
+
+### 4. Benchmarking
+
+Both programs print an **Efficiency Report** at completion:
+
+```
+=== Efficiency Report ===
+Total steps:     100
+Avg train:       107.0 ms/step
+ANE TFLOPS:      2.45 sustained
+ANE utilization: 15.5% of 15.8 TFLOPS
+```
+
+Per-batch timing breakdown during training:
+
+```
+ane=9.6 io=4.1 cls=9.1 elem=14.4 rms=0.1 cblas_wait=2.3 ms/step
+```
+
+| Metric | What it measures |
+|--------|-----------------|
+| `ane` | ANE kernel evaluation |
+| `io` | fp16↔fp32 IOSurface transfer |
+| `cls` | Classifier matmul (CPU cblas) |
+| `elem` | Embedding, residual adds, cross-entropy |
+| `rms` | RMSNorm forward/backward |
+| `cblas_wait` | Waiting for async dW gradient sgemms |
+
+Compare baseline vs ANE-offloaded:
+
+```bash
+make train_large && ./train_large --steps 100
+make train_large_ane && ./train_large_ane --steps 100
 ```
 
 ## Key techniques

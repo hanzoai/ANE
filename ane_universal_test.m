@@ -71,16 +71,24 @@ int main() {
             // ============================================================
             // M4+ path: test with in-memory MIL compilation
             // ============================================================
-            printf("=== M4+ In-Memory ANE Test ===\n");
+            printf("=== In-Memory ANE Test ===\n");
             int C = 256, S = 64;
-            size_t wSize = 64 + C * C * 2;
-            NSMutableData *wd = [NSMutableData dataWithLength:wSize];
-            uint16_t *wp = (uint16_t *)(wd.mutableBytes + 64);
+            // Proper ANE blob: 128-byte header with magic + fp16 data
+            int wsize = C * C * 2;
+            int wtotal = 128 + wsize;
+            NSMutableData *wd = [NSMutableData dataWithLength:wtotal];
+            uint8_t *wb = (uint8_t *)wd.mutableBytes;
+            wb[0] = 1; wb[4] = 2;
+            wb[64] = 0xEF; wb[65] = 0xBE; wb[66] = 0xAD; wb[67] = 0xDE; wb[68] = 1;
+            *(uint32_t *)(wb + 72) = wsize;
+            *(uint32_t *)(wb + 80) = 128;
+            uint16_t *wp = (uint16_t *)(wb + 128);
             for (int i = 0; i < C * C; i++) wp[i] = 0x3400; // 0.25
 
             NSString *mil = [NSString stringWithFormat:
                 @"program(1.3)\n"
-                "[buildInfo = dict<string, string>({{\"coremlc-version\", \"3520.5.1\"}, "
+                "[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
+                "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
                 "{\"coremltools-version\", \"9.0\"}})]\n"
                 "{\n"
                 "    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
@@ -241,9 +249,9 @@ int main() {
         printf("  Chip: %s\n", [get_chip_name() UTF8String]);
         printf("  Backend: %s\n", ane_backend_name());
         if (g_ane_backend == ANE_BACKEND_INMEM)
-            printf("  Status: Full ANE training support via private API\n");
+            printf("  Status: Full ANE access via private API\n");
         else
-            printf("  Status: ANE inference via CoreML (training via MLX recommended)\n");
+            printf("  Status: ANE access via CoreML fallback\n");
     }
     return 0;
 }

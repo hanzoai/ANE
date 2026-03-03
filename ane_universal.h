@@ -1,8 +1,13 @@
 // ane_universal.h — Universal ANE runtime for M1→M4+ Apple Silicon
 // Strategy:
-//   M4+: _ANEInMemoryModel (fast in-memory MIL compile, ~15ms)
-//   M1-M3: CoreML compile → _ANEModel (slower, ~60-280ms, but works)
+//   All chips: _ANEInMemoryModel with proper ANE blob format (128-byte header)
+//   Fallback: CoreML compile → _ANEModel (slower, ~60-280ms)
 //   Both: same IOSurface I/O for evaluation
+//
+// Key finding: The private API works on ALL Apple Silicon (M1+) when weight
+// blobs use the correct format: 128-byte header with magic 0xEFBEADDE at
+// offset 64, data size at 72, data offset (128) at 80. Conv ops with separate
+// weight files work across all chips. Matmul/slice_by_size fails on M1-M3.
 //
 // Usage:
 //   ane_universal_init()
@@ -69,14 +74,24 @@ static ANEBackendType ane_detect_backend(void) {
     }
 
     // Test compile a minimal MIL program to check if private API works
+    // NOTE: Weight blob must use proper ANE format (128-byte header with magic)
     int C = 16, S = 4;
-    NSMutableData *wd = [NSMutableData dataWithLength:64 + C * C * 2];
-    uint16_t *wp = (uint16_t *)(wd.mutableBytes + 64);
+    int wsize = C * C * 2;
+    int total = 128 + wsize;
+    NSMutableData *wd = [NSMutableData dataWithLength:total];
+    uint8_t *wb = (uint8_t *)wd.mutableBytes;
+    wb[0] = 1; wb[4] = 2;
+    wb[64] = 0xEF; wb[65] = 0xBE; wb[66] = 0xAD; wb[67] = 0xDE; wb[68] = 1;
+    *(uint32_t *)(wb + 72) = wsize;
+    *(uint32_t *)(wb + 80) = 128;
+    uint16_t *wp = (uint16_t *)(wb + 128);
     for (int i = 0; i < C * C; i++) wp[i] = 0x3C00;
 
     NSString *testMil = [NSString stringWithFormat:
         @"program(1.3)\n"
-        "[buildInfo = dict<string, string>({{\"coremlc-version\", \"3520.5.1\"}})]\n"
+        "[buildInfo = dict<string, string>({{\"coremlc-component-MIL\", \"3510.2.1\"}, "
+        "{\"coremlc-version\", \"3505.4.1\"}, {\"coremltools-component-milinternal\", \"\"}, "
+        "{\"coremltools-version\", \"9.0\"}})]\n"
         "{\n"
         "    func main<ios18>(tensor<fp16, [1, %d, 1, %d]> x) {\n"
         "        tensor<fp16, [%d,%d,1,1]> W = const()[name=string(\"W\"), val=tensor<fp16, [%d,%d,1,1]>(BLOBFILE(path=string(\"@model_path/weights/weight.bin\"), offset=uint64(64)))];\n"
@@ -126,10 +141,10 @@ static ANEBackendType ane_detect_backend(void) {
     [fm removeItemAtPath:td error:nil];
 
     if (ok) {
-        fprintf(stderr, "[ANE] In-memory compilation works → using fast path (M4+)\n");
+        fprintf(stderr, "[ANE] In-memory compilation works → using private API\n");
         return ANE_BACKEND_INMEM;
     } else {
-        fprintf(stderr, "[ANE] In-memory compilation failed → using CoreML fallback (M1-M3)\n");
+        fprintf(stderr, "[ANE] In-memory compilation failed → using CoreML fallback\n");
         return ANE_BACKEND_COREML;
     }
 }

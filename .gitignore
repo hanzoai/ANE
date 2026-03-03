@@ -28,6 +28,12 @@ training/test_rmsnorm_bwd
 training/test_dynamic_matmul
 training/test_weight_patch
 training/training_dynamic/train
+ane_m1_multiweight
+
+# Training data
+training/tinystories_data00.bin
+training/training_dynamic/tinystories_data00.bin
+training/TinyStories_tok32000.tar.gz
 
 # Compiled libraries
 bridge/libane_bridge.dylib

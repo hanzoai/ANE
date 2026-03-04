@@ -21,18 +21,24 @@ M5              101-120   9.1-9.8  3.2-3.4s     0.77-0.91    4.9-5.8  @GitBubble
 ## Peak ANE Throughput (inmem_peak, 128x conv 512ch sp64)
 
 ```
-Chip            TFLOPS    Rated TOPS    Utilization
-───────────────────────────────────────────────────
-M1 Pro          FAIL      11            -  (MIL compat issue)
-M1 Max          FAIL      11            -  (MIL compat issue)
-M3 Pro          9.98      15.8          63%
-M4 Pro          12.57     38            33%
-M4 Max          10.93     38            29%
-M5              12.17     ~19*          64%
-M5 (other)      12.44     ~19*          65%
+Chip            NE Cores  FP16 TFLOPS (measured)    Rated TOPS (Apple spec*)
+────────────────────────────────────────────────────────────────────────────
+M1 Pro          16        FAIL                      11    (MIL compat issue)
+M1 Max          16        FAIL                      11    (MIL compat issue)
+M3 Pro          16        9.98                      15.8
+M3 Ultra        32        -                         31.6  (ref platform)
+M4 Pro          16        12.57                     38
+M4 Max          16        10.93                     38
+M5              16        12.17                     not disclosed
+M5 (other)      16        12.44                     not disclosed
 ```
 
-*M5 ANE TOPS not officially disclosed; ~19 TOPS estimated from measured peak.
+*Apple's "Rated TOPS" changed methodology across generations — M1/M3 report FP16,
+M4 reports INT8/mixed-precision peak. The numbers are not directly comparable across
+generations. Use the measured FP16 TFLOPS column for apples-to-apples comparison.
+All chips have 16 NE cores except Ultra variants (32 cores, two dies via UltraFusion).
+Max variants share the same 16-core NE as Pro — the M4 Max vs M4 Pro TFLOPS difference
+is run-to-run variance, not hardware.*
 
 ## Comparative Chart
 

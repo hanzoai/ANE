@@ -97,10 +97,17 @@
     }
   ],
   "neural_engine_specs": {
-    "M1":  {"cores": 16, "rated_tops": 11},
-    "M2":  {"cores": 16, "rated_tops": 15.8},
-    "M3":  {"cores": 16, "rated_tops": 15.8},
-    "M4":  {"cores": 16, "rated_tops": 38},
-    "M5":  {"cores": 16, "rated_tops": null, "estimated_tops": 19}
+    "M1":       {"ne_cores": 16, "rated_tops": 11},
+    "M1_Max":   {"ne_cores": 16, "rated_tops": 11},
+    "M1_Ultra": {"ne_cores": 32, "rated_tops": 22},
+    "M2":       {"ne_cores": 16, "rated_tops": 15.8},
+    "M2_Max":   {"ne_cores": 16, "rated_tops": 15.8},
+    "M2_Ultra": {"ne_cores": 32, "rated_tops": 31.6},
+    "M3":       {"ne_cores": 16, "rated_tops": 15.8},
+    "M3_Max":   {"ne_cores": 16, "rated_tops": 15.8},
+    "M3_Ultra": {"ne_cores": 32, "rated_tops": 31.6},
+    "M4":       {"ne_cores": 16, "rated_tops": 38, "note": "INT8/mixed-precision spec"},
+    "M4_Max":   {"ne_cores": 16, "rated_tops": 38, "note": "INT8/mixed-precision spec"},
+    "M5":       {"ne_cores": 16, "rated_tops": null, "estimated_tops": 19}
   }
 }

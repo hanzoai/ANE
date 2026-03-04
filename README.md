@@ -45,10 +45,11 @@ That said:
 - I'll keep pushing updates when I discover something interesting
 - Bug fixes and benchmark contributions (especially on hardware I don't own) are welcome
 - Feature requests will likely go unaddressed — but feel free to fork
+- PRs will be merged at a relatively slow pace, otherwise I become the bottleneck for community growth around this tech
 
 ### Fork it, build on it
 
-This is MIT licensed for a reason. Everyone now has access to AI-assisted development tools that can adapt and extend code in hours. If this project is useful to you — take it, modify it, build something better. If you do something cool with it, I'd love to hear about it.
+This is MIT licensed for a reason. Everyone now has access to AI-assisted development tools that can adapt and extend code in hours. If this project is useful to you — take it, modify it, build something better. If you do something cool with it, I'd love to hear about it.If in future, community decides to maintain one source of truth repo, I'm in full support of that.
 
 ---
 
@@ -163,3 +164,4 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 *Built by a human + Claude, one weekend at a time.*
+

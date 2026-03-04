@@ -12,20 +12,20 @@ This is a **research project**, not a production framework.
 
 The goal was to demonstrate that **training on the Apple Neural Engine — and potentially other NPUs — is possible**, and that the barrier has always been software support, not hardware capability. The ANE is a remarkably capable piece of silicon that Apple restricts to inference-only use through CoreML. This project bypasses that restriction using reverse-engineered private APIs to show what's possible when you give the hardware a chance.
 
-### What this project is
+### What This Project Is
 
 - A proof of concept for ANE training via `_ANEClient` and `_ANECompiler` private APIs
 - A set of benchmarks documenting real ANE performance characteristics (throughput, power, SRAM behavior)
 - A reference for anyone exploring direct ANE access outside CoreML
 - Research code that I update when I find something interesting
 
-### What this project is not
+### What This Project Is Not
 
 - A maintained framework or library
 - A replacement for CoreML, MLX, llama.cpp, or any production inference stack
 - A path to training large models on consumer hardware (yet)
 
-### On the hype
+### On The Hype
 
 Some coverage of this project has overstated its implications. To be clear:
 
@@ -37,7 +37,7 @@ The honest results — including all limitations — are documented in the accom
 - [Part 1: Reverse Engineering](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine)
 - [Part 2: Benchmarks](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine-615)
 
-### On maintenance
+### On Maintenance
 
 I don't intend to grow this into a large community project. My focus is on original research (compiler infrastructure for edge AI optimization), and maintaining an open-source framework takes time away from that.
 

@@ -523,15 +523,19 @@ def draw(term):
 
     buf = []
 
-    def put(y, x, text, style=''):
+    def put(y, x, text, style='', clear_eol=False):
         if 0 <= y < h and x < w:
             text = text[:w - x]
+            suffix = term.clear_eol if clear_eol else ''
             if style:
-                buf.append(term.move(y, x) + style + text + term.normal)
+                buf.append(term.move(y, x) + style + text + term.normal + suffix)
                 return
-            buf.append(term.move(y, x) + text)
+            buf.append(term.move(y, x) + text + suffix)
 
-    buf.append(term.home + term.clear)
+    buf.append(term.home)
+    # Clear each line individually (avoids full-screen flash from term.clear)
+    for y in range(h):
+        buf.append(term.move(y, 0) + term.clear_eol)
 
     mid_x = w // 2
     right_w = w - mid_x - 1
@@ -764,7 +768,7 @@ def set_nonblock(fd):
     fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
 def spawn_training(resume=False, steps=10000, dynamic=False, ane=False, scratch=False,
-                   lr=None, accum=None, no_ane_extras=False):
+                   lr=None, accum=None, no_ane_extras=False, data=None):
     if dynamic:
         cmd = 'cd training_dynamic && make 2>&1 && ./train'
     elif ane:
@@ -781,6 +785,8 @@ def spawn_training(resume=False, steps=10000, dynamic=False, ane=False, scratch=
         cmd += f' --accum {accum}'
     if no_ane_extras and ane:
         cmd += ' --no-ane-extras'
+    if data is not None:
+        cmd += f' --data {data}'
     cmd += f' --steps {steps}'
     proc = subprocess.Popen(
         ['bash', '-c', cmd],
@@ -814,6 +820,7 @@ def main():
     parser.add_argument('--no-powermetrics', action='store_true')
     parser.add_argument('--no-generate', action='store_true', help='Disable text generation')
     parser.add_argument('--steps', type=int, default=10000, help='Total steps (default: 10000)')
+    parser.add_argument('--data', type=str, default=None, help='Path to training data shard (.bin)')
     args = parser.parse_args()
 
     if args.infinite:
@@ -828,7 +835,8 @@ def main():
 
     train_proc = spawn_training(resume=args.resume, steps=args.steps, dynamic=args.dynamic,
                                 scratch=args.scratch, lr=args.lr, accum=args.accum,
-                                ane=args.ane, no_ane_extras=args.no_ane_extras)
+                                ane=args.ane, no_ane_extras=args.no_ane_extras,
+                                data=args.data)
     S.train_pid = train_proc.pid
     procs.append(train_proc)
 
@@ -970,7 +978,8 @@ def main():
                             train_proc.wait()
                         train_proc = spawn_training(resume=True, steps=args.steps, dynamic=args.dynamic,
                                                         lr=args.lr, accum=args.accum,
-                                                        ane=args.ane, no_ane_extras=args.no_ane_extras)
+                                                        ane=args.ane, no_ane_extras=args.no_ane_extras,
+                                                        data=args.data)
                         S.train_pid = train_proc.pid
                         procs = [p for p in procs if p.poll() is None]
                         procs.append(train_proc)

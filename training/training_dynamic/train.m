@@ -6,7 +6,7 @@
 
 #define CKPT_PATH "ane_stories110M_dyn_ckpt.bin"
 #define MODEL_PATH "../../../assets/models/stories110M.bin"
-#define DATA_PATH "../tinystories_data00.bin"
+#define DEFAULT_DATA_PATH "../tinystories_data00.bin"
 
 // Dynamic kernel set per layer
 typedef struct {
@@ -217,6 +217,7 @@ int main(int argc, char *argv[]) {
         float min_lr_frac = 0.1f;  // min_lr = max_lr * 0.1
 
         bool do_resume = false, from_scratch = false;
+        const char *data_path = DEFAULT_DATA_PATH;
         for (int i=1; i<argc; i++) {
             if (strcmp(argv[i], "--resume") == 0) do_resume = true;
             else if (strcmp(argv[i], "--scratch") == 0) from_scratch = true;
@@ -225,6 +226,7 @@ int main(int argc, char *argv[]) {
             else if (strcmp(argv[i], "--accum") == 0 && i+1<argc) accum_steps = atoi(argv[++i]);
             else if (strcmp(argv[i], "--warmup") == 0 && i+1<argc) warmup_steps = atoi(argv[++i]);
             else if (strcmp(argv[i], "--clip") == 0 && i+1<argc) grad_clip = atof(argv[++i]);
+            else if (strcmp(argv[i], "--data") == 0 && i+1<argc) data_path = argv[++i];
         }
         float lr = max_lr;
 
@@ -304,8 +306,8 @@ int main(int argc, char *argv[]) {
         }
 
         // mmap token data
-        int data_fd = open(DATA_PATH, O_RDONLY);
-        if (data_fd < 0) { printf("Cannot open %s\n", DATA_PATH); return 1; }
+        int data_fd = open(data_path, O_RDONLY);
+        if (data_fd < 0) { printf("Cannot open %s\n", data_path); return 1; }
         struct stat st; fstat(data_fd, &st);
         size_t data_len = st.st_size;
         uint16_t *token_data = (uint16_t*)mmap(NULL, data_len, PROT_READ, MAP_PRIVATE, data_fd, 0);

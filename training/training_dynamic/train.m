@@ -58,10 +58,15 @@ static void transpose_weight(float *dst, const float *src, int rows, int cols) {
 // ===== Compile all dynamic kernels (ONCE) =====
 static bool compile_dynamic_kernels(DynLayerKernels *dk) {
     NSDictionary *mask_w = @{@"@model_path/weights/mask.bin": @{@"offset":@0, @"data":get_mask_blob()}};
+    NSDictionary *sdpa_fwd_w = @{
+        @"@model_path/weights/mask.bin": @{@"offset":@0, @"data":get_mask_blob()},
+        @"@model_path/weights/rope_cos.bin": @{@"offset":@0, @"data":get_rope_cos_blob()},
+        @"@model_path/weights/rope_sin.bin": @{@"offset":@0, @"data":get_rope_sin_blob()}
+    };
 
     // SDPA forward: [1, DIM, 1, SEQ+4*DIM] fp16 → [1, 6*DIM, 1, SEQ] fp16
     printf("  Compiling sdpaFwd...\n");
-    dk->sdpaFwd = compile_kern_mil_w(gen_sdpa_fwd_dynamic(), mask_w,
+    dk->sdpaFwd = compile_kern_mil_w(gen_sdpa_fwd_dynamic(), sdpa_fwd_w,
         DIM*(SEQ+4*DIM)*2, 6*DIM*SEQ*2);
     if (!dk->sdpaFwd) return false;
 
@@ -213,7 +218,7 @@ int main(int argc, char *argv[]) {
         int warmup_steps = 100;
         float grad_clip = 1.0f;
         float loss_scale = 256.0f; // fp16 loss scaling for ANE backward
-        float act_clip = 20.0f;
+        float res_alpha = 1.0f / sqrtf(2.0f * NLAYERS); // residual scaling (DeepNet-style)
         float min_lr_frac = 0.1f;  // min_lr = max_lr * 0.1
 
         bool do_resume = false, from_scratch = false;
@@ -273,11 +278,12 @@ int main(int argc, char *argv[]) {
                 else printf("  Pretrained load failed, using random init\n");
                 srand48(42);
                 float scale_d=1.0f/sqrtf(DIM), scale_h=1.0f/sqrtf(HIDDEN);
+                float res_scale = 1.0f/sqrtf(2.0f*NLAYERS); // LLaMA-style output proj scaling
                 for (int L=0; L<NLAYERS; L++) {
                     for(size_t i=0;i<WQ_SZ;i++){lw[L].Wq[i]=scale_d*(2*drand48()-1);lw[L].Wk[i]=scale_d*(2*drand48()-1);}
-                    for(size_t i=0;i<WQ_SZ;i++){lw[L].Wv[i]=scale_d*(2*drand48()-1);lw[L].Wo[i]=scale_d*(2*drand48()-1);}
+                    for(size_t i=0;i<WQ_SZ;i++){lw[L].Wv[i]=scale_d*(2*drand48()-1);lw[L].Wo[i]=scale_d*res_scale*(2*drand48()-1);}
                     for(size_t i=0;i<W1_SZ;i++) lw[L].W1[i]=scale_h*(2*drand48()-1);
-                    for(size_t i=0;i<W2_SZ;i++) lw[L].W2[i]=scale_d*(2*drand48()-1);
+                    for(size_t i=0;i<W2_SZ;i++) lw[L].W2[i]=scale_d*res_scale*(2*drand48()-1);
                     for(size_t i=0;i<W3_SZ;i++) lw[L].W3[i]=scale_h*(2*drand48()-1);
                     for(int i=0;i<DIM;i++){lw[L].rms_att[i]=1.0f; lw[L].rms_ffn[i]=1.0f;}
                 }
@@ -362,10 +368,10 @@ int main(int argc, char *argv[]) {
         for (int L = 0; L < NLAYERS; L++) {
             stage_sdpa_fwd_weights(pls[L].sdpaFwd_in, Wqt_buf[L], Wkt_buf[L], Wvt_buf[L], Wot_buf[L]);
             stage_ffn_fused_weights(pls[L].ffnFused_in, W1t_buf[L], W3t_buf[L], lw[L].W2);
-            stage_ffn_bwd_w2t_weights(pls[L].ffnBwdW2t_in, W2t_buf[L]);
-            stage_ffn_bwd_w13t_weights(pls[L].ffnBwdW13t_in, W1t_buf[L], W3t_buf[L]);
-            stage_wot_bwd_weights(pls[L].wotBwd_in, Wot_buf[L]);
-            stage_qkv_bwd_weights(pls[L].qkvBwd_in, Wqt_buf[L], Wkt_buf[L], Wvt_buf[L]);
+            stage_ffn_bwd_w2t_weights(pls[L].ffnBwdW2t_in, lw[L].W2);
+            stage_ffn_bwd_w13t_weights(pls[L].ffnBwdW13t_in, lw[L].W1, lw[L].W3);
+            stage_wot_bwd_weights(pls[L].wotBwd_in, lw[L].Wo);
+            stage_qkv_bwd_weights(pls[L].qkvBwd_in, lw[L].Wq, lw[L].Wk, lw[L].Wv);
         }
         printf("Per-layer weight staging complete\n\n");
 
@@ -455,9 +461,10 @@ int main(int argc, char *argv[]) {
                 IOSurfaceUnlock(dk.sdpaFwd->ioOut, kIOSurfaceLockReadOnly, NULL);
                 t_io_fwd += tb_ms(mach_absolute_time() - t0);
 
-                // CPU: residual + RMSNorm (ANE can't fuse RMS with 3 matmuls)
+                // CPU: scaled residual + RMSNorm (ANE can't fuse RMS with 3 matmuls)
                 t0 = mach_absolute_time();
-                vDSP_vadd(x_cur, 1, ac->o_out, 1, ac->x2, 1, (vDSP_Length)(SEQ*DIM));
+                // x2 = x_cur + alpha * o_out (residual scaling keeps activations bounded)
+                vDSP_vsma(ac->o_out, 1, &res_alpha, x_cur, 1, ac->x2, 1, (vDSP_Length)(SEQ*DIM));
                 rmsnorm(ac->x2norm, ac->x2, lw[L].rms_ffn, DIM, SEQ);
                 t_rms += tb_ms(mach_absolute_time() - t0);
 
@@ -484,14 +491,8 @@ int main(int argc, char *argv[]) {
                 IOSurfaceUnlock(dk.ffnFused->ioOut, kIOSurfaceLockReadOnly, NULL);
                 t_io_fwd += tb_ms(mach_absolute_time() - t0);
 
-                // Scale down residual stream if max magnitude exceeds threshold
-                {
-                    float amx; vDSP_maxmgv(x_cur, 1, &amx, (vDSP_Length)(SEQ*DIM));
-                    if (amx > act_clip) {
-                        float sc = act_clip / amx;
-                        vDSP_vsmul(x_cur, 1, &sc, x_cur, 1, (vDSP_Length)(SEQ*DIM));
-                    }
-                }
+                // (act_clip removed — was causing gradient explosion without backward,
+                // vanishing gradients with backward. RMSNorm keeps activations bounded.)
             }
 
             // Final RMSNorm + classifier + loss (CPU)
@@ -533,7 +534,9 @@ int main(int argc, char *argv[]) {
             for (int L=NLAYERS-1; L>=0; L--) {
                 LayerActs *ac = &acts[L];
                 LayerGrads *gr = &grads[L];
-                memcpy(dffn, dy, SEQ*DIM*4);
+
+                // dffn = alpha * dy (gradient into FFN branch scaled by residual alpha)
+                vDSP_vsmul(dy, 1, &res_alpha, dffn, 1, (vDSP_Length)(SEQ*DIM));
 
                 // FFN backward: dffn @ pre-staged W2^T → dsilu_raw
                 t0 = mach_absolute_time();
@@ -609,9 +612,12 @@ int main(int argc, char *argv[]) {
                 for(int i=0;i<SEQ*DIM;i++) dx2[i] += dy[i];
                 t_rms_bwd += tb_ms(mach_absolute_time() - t0);
 
-                // Wo^T backward (ANE): dx2 @ pre-staged Wo^T → da
+                // Wo^T backward (ANE): alpha*dx2 @ pre-staged Wo^T → da
+                // Scale dx2 by alpha for the attention branch (residual scaling backward)
+                float *dx2_scaled = (float*)malloc(SEQ*DIM*4);
+                vDSP_vsmul(dx2, 1, &res_alpha, dx2_scaled, 1, (vDSP_Length)(SEQ*DIM));
                 t0 = mach_absolute_time();
-                write_wot_bwd_acts(pls[L].wotBwd_in, dx2);
+                write_wot_bwd_acts(pls[L].wotBwd_in, dx2_scaled);
                 t_io_bwd += tb_ms(mach_absolute_time() - t0);
                 t0 = mach_absolute_time();
                 ane_eval_req(dk.wotBwd, plr[L].wotBwd);
@@ -621,9 +627,10 @@ int main(int argc, char *argv[]) {
                 io_read_dyn(dk.wotBwd->ioOut, da_buf, DIM, SEQ);
                 t_io_bwd += tb_ms(mach_absolute_time() - t0);
 
-                // dWo async
+                // dWo async (uses alpha-scaled dx2)
                 t0 = mach_absolute_time();
-                float *capt_do = (float*)malloc(SEQ*DIM*4); memcpy(capt_do, dx2, SEQ*DIM*4);
+                float *capt_do = (float*)malloc(SEQ*DIM*4); memcpy(capt_do, dx2_scaled, SEQ*DIM*4);
+                free(dx2_scaled);
                 float *capt_attn = (float*)malloc(SEQ*DIM*4); memcpy(capt_attn, ac->attn_out, SEQ*DIM*4);
                 t_dw_copy += tb_ms(mach_absolute_time() - t0);
                 dispatch_group_async(dw_grp, dw_q, ^{
@@ -672,6 +679,11 @@ int main(int argc, char *argv[]) {
                 io_read_fp16(dk.sdpaBwd2->ioOut, dk_buf, DIM, DIM, SEQ);
                 io_read_fp16(dk.sdpaBwd1->ioOut, dv, 0, DIM, SEQ);
                 t_io_bwd += tb_ms(mach_absolute_time() - t0);
+
+                // RoPE backward: dq, dk are grads w.r.t. Q_rope, K_rope
+                // Inverse rotation to get grads w.r.t. pre-RoPE Q, K
+                rope_backward_inplace(dq, SEQ, DIM, HD);
+                rope_backward_inplace(dk_buf, SEQ, DIM, HD);
 
                 // Debug: check SDPA backward output magnitudes
                 if (L == 0 && step % 10 == 0) {
@@ -853,10 +865,10 @@ int main(int argc, char *argv[]) {
                     // Re-stage weights into per-layer IOSurfaces
                     stage_sdpa_fwd_weights(pls[L].sdpaFwd_in, Wqt_buf[L], Wkt_buf[L], Wvt_buf[L], Wot_buf[L]);
                     stage_ffn_fused_weights(pls[L].ffnFused_in, W1t_buf[L], W3t_buf[L], lw[L].W2);
-                    stage_ffn_bwd_w2t_weights(pls[L].ffnBwdW2t_in, W2t_buf[L]);
-                    stage_ffn_bwd_w13t_weights(pls[L].ffnBwdW13t_in, W1t_buf[L], W3t_buf[L]);
-                    stage_wot_bwd_weights(pls[L].wotBwd_in, Wot_buf[L]);
-                    stage_qkv_bwd_weights(pls[L].qkvBwd_in, Wqt_buf[L], Wkt_buf[L], Wvt_buf[L]);
+                    stage_ffn_bwd_w2t_weights(pls[L].ffnBwdW2t_in, lw[L].W2);
+                    stage_ffn_bwd_w13t_weights(pls[L].ffnBwdW13t_in, lw[L].W1, lw[L].W3);
+                    stage_wot_bwd_weights(pls[L].wotBwd_in, lw[L].Wo);
+                    stage_qkv_bwd_weights(pls[L].qkvBwd_in, lw[L].Wq, lw[L].Wk, lw[L].Wv);
                 }
                 adam_update(rms_final, grms_final, &arms_final, adam_t, lr, adam_b1, adam_b2, adam_eps, 0.0f);
                 adam_update(embed, gembed, &aembed, adam_t, lr, adam_b1, adam_b2, adam_eps, wd);

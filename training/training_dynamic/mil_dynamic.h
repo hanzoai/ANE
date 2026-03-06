@@ -135,8 +135,41 @@ static NSString *gen_sdpa_fwd_dynamic(void) {
     [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> v4 = reshape(shape=qsh,x=vf)[name=string(\"rv\")];\n", HEADS, HD, SEQ];
     [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> v = transpose(perm=pm,x=v4)[name=string(\"tv\")];\n", HEADS, SEQ, HD];
 
-    // Q @ K^T
-    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> sc1 = matmul(transpose_x=bF,transpose_y=bT,x=q,y=k)[name=string(\"mm1\")];\n", HEADS, SEQ, SEQ];
+    // RoPE: q_rope = q * cos + rotate_half(q) * sin, same for k
+    int pairs = SEQ * HD / 2;
+    [m appendFormat:@"        tensor<fp16, [1,1,%d,%d]> rope_cos = const()[name=string(\"rc\"), val=tensor<fp16, [1,1,%d,%d]>(BLOBFILE(path=string(\"@model_path/weights/rope_cos.bin\"), offset=uint64(64)))];\n", SEQ, HD, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,1,%d,%d]> rope_sin = const()[name=string(\"rs\"), val=tensor<fp16, [1,1,%d,%d]>(BLOBFILE(path=string(\"@model_path/weights/rope_sin.bin\"), offset=uint64(64)))];\n", SEQ, HD, SEQ, HD];
+    [m appendFormat:@"        tensor<int32, [4]> rp_sh = const()[name=string(\"rp_sh\"), val=tensor<int32, [4]>([1,%d,%d,2])];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<int32, [4]> rp_s1 = const()[name=string(\"rp_s1\"), val=tensor<int32, [4]>([1,%d,%d,1])];\n", HEADS, pairs];
+    [m appendString:@"        tensor<int32, [4]> rp_b0 = const()[name=string(\"rp_b0\"), val=tensor<int32, [4]>([0,0,0,0])];\n"];
+    [m appendString:@"        tensor<int32, [4]> rp_b1 = const()[name=string(\"rp_b1\"), val=tensor<int32, [4]>([0,0,0,1])];\n"];
+    [m appendFormat:@"        tensor<int32, [4]> rp_bk = const()[name=string(\"rp_bk\"), val=tensor<int32, [4]>([1,%d,%d,%d])];\n", HEADS, SEQ, HD];
+    // rotate_half(q): reshape to pairs, swap+negate, reshape back
+    [m appendString:@"        fp16 neg1 = const()[name=string(\"neg1\"), val=fp16(-1)];\n"];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,2]> q_p = reshape(shape=rp_sh,x=q)[name=string(\"q_p\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> q_e = slice_by_size(x=q_p,begin=rp_b0,size=rp_s1)[name=string(\"q_e\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> q_o = slice_by_size(x=q_p,begin=rp_b1,size=rp_s1)[name=string(\"q_o\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> nq = mul(x=q_o,y=neg1)[name=string(\"nq\")];\n", HEADS, pairs];
+    [m appendString:@"        int32 rpax = const()[name=string(\"rpax\"), val=int32(3)];\n"];
+    [m appendString:@"        bool rpil = const()[name=string(\"rpil\"), val=bool(false)];\n"];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,2]> qrp = concat(axis=rpax,interleave=rpil,values=(nq,q_e))[name=string(\"qrp\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> q_rot = reshape(shape=rp_bk,x=qrp)[name=string(\"q_rot\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> qc = mul(x=q,y=rope_cos)[name=string(\"qc\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> qrs = mul(x=q_rot,y=rope_sin)[name=string(\"qrs\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> q_rope = add(x=qc,y=qrs)[name=string(\"q_rope\")];\n", HEADS, SEQ, HD];
+    // rotate_half(k)
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,2]> k_p = reshape(shape=rp_sh,x=k)[name=string(\"k_p\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> k_e = slice_by_size(x=k_p,begin=rp_b0,size=rp_s1)[name=string(\"k_e\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> k_o = slice_by_size(x=k_p,begin=rp_b1,size=rp_s1)[name=string(\"k_o\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,1]> nk = mul(x=k_o,y=neg1)[name=string(\"nk\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,2]> krp = concat(axis=rpax,interleave=rpil,values=(nk,k_e))[name=string(\"krp\")];\n", HEADS, pairs];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> k_rot = reshape(shape=rp_bk,x=krp)[name=string(\"k_rot\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> kc = mul(x=k,y=rope_cos)[name=string(\"kc\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> krs = mul(x=k_rot,y=rope_sin)[name=string(\"krs\")];\n", HEADS, SEQ, HD];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> k_rope = add(x=kc,y=krs)[name=string(\"k_rope\")];\n", HEADS, SEQ, HD];
+
+    // Q_rope @ K_rope^T
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> sc1 = matmul(transpose_x=bF,transpose_y=bT,x=q_rope,y=k_rope)[name=string(\"mm1\")];\n", HEADS, SEQ, SEQ];
     [m appendFormat:@"        fp16 scv = const()[name=string(\"scv\"), val=fp16(%f)];\n", sc];
     [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> sc2 = mul(x=sc1,y=scv)[name=string(\"scl\")];\n", HEADS, SEQ, SEQ];
 
@@ -162,10 +195,16 @@ static NSString *gen_sdpa_fwd_dynamic(void) {
     [m appendFormat:@"        tensor<fp16, [1,1,%d,%d]> ot = transpose(perm=pm,x=om)[name=string(\"ot\")];\n", DIM, SEQ];
     [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> oo = reshape(shape=os,x=ot)[name=string(\"oo\")];\n", DIM, SEQ];
 
-    // Output: concat(o_out, qf, kf, vf, af, xn) — same as original for backward compatibility
+    // Convert RoPE'd Q,K back to [1,DIM,1,SEQ] for backward pass output
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> qrt = transpose(perm=pm,x=q_rope)[name=string(\"qrt\")];\n", HEADS, HD, SEQ];
+    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> qrf = reshape(shape=os,x=qrt)[name=string(\"qrf\")];\n", DIM, SEQ];
+    [m appendFormat:@"        tensor<fp16, [1,%d,%d,%d]> krt = transpose(perm=pm,x=k_rope)[name=string(\"krt\")];\n", HEADS, HD, SEQ];
+    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> krf = reshape(shape=os,x=krt)[name=string(\"krf\")];\n", DIM, SEQ];
+
+    // Output: concat(o_out, Q_rope, K_rope, V, attn_out, xnorm) for backward
     [m appendString:@"        int32 cax = const()[name=string(\"cax\"), val=int32(1)];\n"];
     [m appendString:@"        bool cid = const()[name=string(\"cid\"), val=bool(false)];\n"];
-    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> out = concat(axis=cax,interleave=cid,values=(oo,qf,kf,vf,af,xn))[name=string(\"cat\")];\n", 6*DIM, SEQ];
+    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> out = concat(axis=cax,interleave=cid,values=(oo,qrf,krf,vf,af,xn))[name=string(\"cat\")];\n", 6*DIM, SEQ];
     [m appendString:@"    } -> (out);\n}\n"];
     return m;
 }
@@ -331,8 +370,11 @@ static NSString *gen_ffn_fused_dynamic(void) {
     [m appendFormat:@"        tensor<int32, [4]> rd2 = const()[name=string(\"rd2\"), val=tensor<int32, [4]>([1,%d,1,%d])];\n", DIM, SEQ];
     [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> ffn_out = reshape(shape=rd2,x=ft)[name=string(\"ffn_out\")];\n", DIM, SEQ];
 
-    // Residual: x_next = x2 + ffn_out
-    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> x_next = add(x=x2,y=ffn_out)[name=string(\"x_next\")];\n", DIM, SEQ];
+    // Residual: x_next = x2 + alpha * ffn_out (residual scaling)
+    float alpha = 1.0f / sqrtf(2.0f * NLAYERS);
+    [m appendFormat:@"        fp16 res_alpha = const()[name=string(\"res_alpha\"), val=fp16(%g)];\n", alpha];
+    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> ffn_scaled = mul(x=ffn_out,y=res_alpha)[name=string(\"ffn_sc\")];\n", DIM, SEQ];
+    [m appendFormat:@"        tensor<fp16, [1,%d,1,%d]> x_next = add(x=x2,y=ffn_scaled)[name=string(\"x_next\")];\n", DIM, SEQ];
 
     // Output: concat(x_next, h1, h3, gate) — gate=silu*h3 needed for dW2
     [m appendString:@"        int32 cax = const()[name=string(\"cax\"), val=int32(1)];\n"];
@@ -664,4 +706,40 @@ static NSData *get_mask_blob(void) {
         free(mask);
     }
     return g_mask_blob;
+}
+
+// RoPE cos/sin blobs [1, 1, SEQ, HD] — rotary position encodings
+static NSData *g_rope_cos_blob = nil;
+static NSData *g_rope_sin_blob = nil;
+
+static NSData *get_rope_cos_blob(void) {
+    if (!g_rope_cos_blob) {
+        _Float16 *buf = (_Float16*)calloc(SEQ * HD, sizeof(_Float16));
+        for (int p = 0; p < SEQ; p++)
+            for (int i = 0; i < HD/2; i++) {
+                float theta = p / powf(10000.0f, 2.0f * i / (float)HD);
+                _Float16 cv = (_Float16)cosf(theta);
+                buf[p * HD + 2*i] = cv;
+                buf[p * HD + 2*i + 1] = cv;
+            }
+        g_rope_cos_blob = build_blob_fp16(buf, SEQ * HD);
+        free(buf);
+    }
+    return g_rope_cos_blob;
+}
+
+static NSData *get_rope_sin_blob(void) {
+    if (!g_rope_sin_blob) {
+        _Float16 *buf = (_Float16*)calloc(SEQ * HD, sizeof(_Float16));
+        for (int p = 0; p < SEQ; p++)
+            for (int i = 0; i < HD/2; i++) {
+                float theta = p / powf(10000.0f, 2.0f * i / (float)HD);
+                _Float16 sv = (_Float16)sinf(theta);
+                buf[p * HD + 2*i] = sv;
+                buf[p * HD + 2*i + 1] = sv;
+            }
+        g_rope_sin_blob = build_blob_fp16(buf, SEQ * HD);
+        free(buf);
+    }
+    return g_rope_sin_blob;
 }

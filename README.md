@@ -36,6 +36,7 @@ Some coverage of this project has overstated its implications. To be clear:
 The honest results — including all limitations — are documented in the accompanying articles:
 - [Part 1: Reverse Engineering](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine)
 - [Part 2: Benchmarks](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine-615)
+- [Part 3: Training](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine-c8b)
 
 ### On Maintenance
 
@@ -224,4 +225,5 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 *Built by a human + Claude, one weekend at a time.*
+
 

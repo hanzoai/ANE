@@ -12,40 +12,48 @@ This is a **research project**, not a production framework.
 
 The goal was to demonstrate that **training on the Apple Neural Engine — and potentially other NPUs — is possible**, and that the barrier has always been software support, not hardware capability. The ANE is a remarkably capable piece of silicon that Apple restricts to inference-only use through CoreML. This project bypasses that restriction using reverse-engineered private APIs to show what's possible when you give the hardware a chance.
 
-### What this project is
+### What This Project Is
 
 - A proof of concept for ANE training via `_ANEClient` and `_ANECompiler` private APIs
 - A set of benchmarks documenting real ANE performance characteristics (throughput, power, SRAM behavior)
 - A reference for anyone exploring direct ANE access outside CoreML
 - Research code that I update when I find something interesting
 
-### What this project is not
+### What This Project Is Not
 
 - A maintained framework or library
 - A replacement for CoreML, MLX, llama.cpp, or any production inference stack
 - A path to training large models on consumer hardware (yet)
 
-### On the hype
+### On The Hype
 
 Some coverage of this project has overstated its implications. To be clear:
 
-- Training works, but utilization is low (~2-3% of peak) with significant engineering challenges remaining
+- Training works, but utilization is low (~5-9% of peak) with significant engineering challenges remaining
 - Many element-wise operations still fall back to CPU
 - This does **not** replace GPU training for anything beyond small research models today
 
 The honest results — including all limitations — are documented in the accompanying articles:
 - [Part 1: Reverse Engineering](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine)
 - [Part 2: Benchmarks](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine-615)
+- [Part 3: Training](https://maderix.substack.com/p/inside-the-m4-apple-neural-engine-c8b)
 
 ### Fork it, build on it
 
-This is MIT licensed for a reason. Everyone now has access to AI-assisted development tools that can adapt and extend code in hours. If this project is useful to you — take it, modify it, build something better. If you do something cool with it, I'd love to hear about it.
+This is MIT licensed for a reason. Everyone now has access to AI-assisted development tools that can adapt and extend code in hours. If this project is useful to you — take it, modify it, build something better. If you do something cool with it, I'd love to hear about it.If in future, community decides to maintain one source of truth repo, I'm in full support of that.
 
 ---
 
 ## What This Is
 
-A from-scratch implementation of transformer training (forward + backward pass) running on the ANE in Apple Silicon. The ANE is a 15.8 TFLOPS (M4) inference accelerator that Apple does not expose for training. This project reverse-engineers the `_ANEClient` / `_ANECompiler` private APIs and the MIL (Model Intermediate Language) format to run custom compute graphs — including backpropagation — directly on ANE hardware.
+A from-scratch implementation of transformer training (forward + backward pass) running on the ANE in Apple Silicon. The ANE is a 15.8 TFLOPS FP16 (M4) inference accelerator that Apple does not expose for training. This project reverse-engineers the `_ANEClient` / `_ANECompiler` private APIs and the MIL (Model Intermediate Language) format to run custom compute graphs — including backpropagation — directly on ANE hardware.
+
+**Current results:**
+
+| Model | Params | ms/step | Pipeline |
+|-------|--------|---------|----------|
+| Stories110M (12L, dim=768, MHA 12/12) | 109M | **91 ms** | Dynamic (no recompile) |
+| Qwen3-0.6B (28L, dim=1024, GQA 16/8) | 596M | **412 ms** | Dynamic (no recompile) |
 
 **Current results (M4, Stories110M, 12-layer Llama2 architecture):**
 - 92 ms/step (static + ANE extras), 111 ms/step (dynamic weights)
@@ -97,14 +105,7 @@ Weights passed via IOSurface spatial dimension — compile 9 kernels once at sta
 
 6 ANE kernel types per layer (static pipeline):
 
-| Kernel | Function | Weights |
-|--------|----------|---------|
-| `kFwdAttn` | RMSNorm + QKV projection + SDPA + output projection | Wq, Wk, Wv, Wo, rms1, mask |
-| `kFwdFFN` | RMSNorm + SwiGLU FFN (W1, W3, SiLU, W2) | W1, W2, W3, rms2 |
-| `kFFNBwd` | FFN backward (W2^T + SiLU_bwd + W1^T + W3^T) | W2^T, W1^T, W3^T |
-| `kSdpaBwd1` | Wo^T + SDPA backward part 1 (dV, probs, dp) | Wo^T, mask |
-| `kSdpaBwd2` | SDPA backward part 2 (softmax grad, dQ, dK) | — |
-| `kQKVb` | QKV backward (Wq^T + Wk^T + Wv^T → dx) | Wq^T, Wk^T, Wv^T |
+**MHA models (Stories110M) — 6 kernels per layer:**
 
 CPU handles: RMSNorm backward, residual connections, loss computation, dW gradient accumulation (cblas_sgemm), Adam optimizer.
 
@@ -168,6 +169,14 @@ ANE/
     └── test_*.m                   # Hardware probe/validation tests
 ```
 
+## Training Data
+
+Training requires pretokenized TinyStories data. To download:
+```bash
+cd training && bash download_data.sh
+```
+See [training/README.md](training/README.md) for detailed training instructions.
+
 ## Building
 
 Requires macOS 15+ on Apple Silicon.
@@ -199,3 +208,5 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 *Built by a human + Claude, one weekend at a time.*
+
+

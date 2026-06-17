@@ -1,4 +1,4 @@
-# ANE — AI Assistant Context
+# ANE
 
 # ANE — Backpropagation on Apple Neural Engine
 
